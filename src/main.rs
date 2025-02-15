@@ -25,4 +25,10 @@ fn main() {
 
     println!("construction: {}ms", elapsed.as_millis());
     println!("root: {:?}", kdtree.root());
+
+    let now = Instant::now();
+    let nearest_center = kdtree.find_nearest(&[5.0, 5.0, 5.0]);
+    let elapsed = now.elapsed();
+    println!("find: {}ms", elapsed.as_millis());
+    println!("center nearest: {nearest_center:?}");
 }
