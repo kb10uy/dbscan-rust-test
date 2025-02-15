@@ -31,4 +31,10 @@ fn main() {
     let elapsed = now.elapsed();
     println!("find: {}ms", elapsed.as_millis());
     println!("center nearest: {nearest_center:?}");
+
+    let now = Instant::now();
+    let nearest_n = kdtree.find_nearest_n(&[5.0, 5.0, 5.0], 100);
+    let elapsed = now.elapsed();
+    println!("find: {}ms", elapsed.as_millis());
+    println!("center nearest: {nearest_n:?}");
 }

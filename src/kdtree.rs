@@ -1,6 +1,7 @@
 use num_traits::Float;
-use std::{borrow::Borrow, cmp::Ordering, fmt::Debug, num::NonZeroUsize};
+use std::{cmp::Ordering, collections::BinaryHeap, fmt::Debug, num::NonZeroUsize};
 
+/// KdTree に格納する要素が実装しなければいけないトレイト。
 pub trait KdTreeItem: Debug + Clone {
     type Measurement: Debug + PartialOrd;
 
@@ -35,9 +36,40 @@ impl<T: Debug + Float, const N: usize> KdTreeItem for [T; N] {
     }
 }
 
+/// k-d tree を表す。
 pub struct KdTree<T> {
     nodes: Vec<Node<T>>,
     root_index: Option<NonZeroUsize>,
+}
+
+#[derive(Debug)]
+struct Node<T> {
+    item: T,
+    left_index: Option<NonZeroUsize>,
+    right_index: Option<NonZeroUsize>,
+}
+
+#[derive(Debug)]
+struct NeighborCandidate<'a, T: KdTreeItem>(&'a T, T::Measurement);
+
+impl<T: KdTreeItem> PartialEq for NeighborCandidate<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == other.1
+    }
+}
+
+impl<T: KdTreeItem> Eq for NeighborCandidate<'_, T> {}
+
+impl<T: KdTreeItem> PartialOrd for NeighborCandidate<'_, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: KdTreeItem> Ord for NeighborCandidate<'_, T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.1.partial_cmp(&other.1).expect("not total order")
+    }
 }
 
 impl<T: KdTreeItem> KdTree<T> {
@@ -55,13 +87,36 @@ impl<T: KdTreeItem> KdTree<T> {
     }
 
     pub fn find_nearest<'a>(&'a self, query: &'a T) -> Option<&'a T> {
-        let query = query.borrow();
-        self.find_nearest_depth(self.get_node(self.root_index), query, 0)
-            .map(|n| &n.item)
+        self.find_nearest_n(query, 1).into_iter().next()
     }
 
-    fn find_nearest_depth<'a>(&'a self, root: Option<&'a Node<T>>, query: &'a T, depth: usize) -> Option<&'a Node<T>> {
-        let root = root?;
+    pub fn find_nearest_n<'a>(&'a self, query: &'a T, max_count: usize) -> Vec<&'a T> {
+        let mut candidates = BinaryHeap::with_capacity(max_count);
+        self.find_nearest_n_depth(&mut candidates, max_count, self.get_node(self.root_index), query, 0);
+        candidates.iter().rev().map(|c| c.0).collect()
+    }
+
+    fn find_nearest_n_depth<'a>(
+        &'a self,
+        candidates: &mut BinaryHeap<NeighborCandidate<'a, T>>,
+        max_candidates: usize,
+        root: Option<&'a Node<T>>,
+        query: &'a T,
+        depth: usize,
+    ) {
+        let Some(root) = root else {
+            return;
+        };
+
+        // root が candidates に入るなら入れる
+        let root_distance = query.distance(&root.item);
+        if candidates.len() < max_candidates {
+            candidates.push(NeighborCandidate(&root.item, root_distance));
+        } else if root_distance < candidates.peek().expect("must exist").1 {
+            candidates.pop();
+            candidates.push(NeighborCandidate(&root.item, root_distance));
+        }
+
         let (left_subtree, right_subtree) = (self.get_node(root.left_index), self.get_node(root.right_index));
         let (first_subtree, second_subtree) = match query.cmp_in_depth(&root.item, depth) {
             Ordering::Less => (left_subtree, right_subtree),
@@ -69,32 +124,25 @@ impl<T: KdTreeItem> KdTree<T> {
         };
 
         // query が属する sub-tree の探索
-        let first_subtree_nearest = self.find_nearest_depth(first_subtree, query, depth + 1);
-        let (first_best, first_best_distance) = select_nearest(query, root, first_subtree_nearest);
+        self.find_nearest_n_depth(candidates, max_candidates, first_subtree, query, depth + 1);
 
-        // first_best_distance が現在の分割面を跨いでいなければ打ち切り
-        let axis_distance = query.distance_to_axis(&root.item, depth);
-        if axis_distance >= first_best_distance {
-            return Some(first_best);
+        if candidates.len() < max_candidates {
+            // max_candidate に達してない場合は無条件で逆側も探索
+            self.find_nearest_n_depth(candidates, max_candidates, second_subtree, query, depth + 1);
+        } else {
+            let axis_distance = query.distance_to_axis(&root.item, depth);
+            let max_candidate_distance = &candidates.peek().expect("must exist").1;
+            // candidate の最遠半径が現在の分割面を跨いでいれば逆側も探索
+            if axis_distance < *max_candidate_distance {
+                self.find_nearest_n_depth(candidates, max_candidates, second_subtree, query, depth + 1);
+            }
         }
-
-        // 逆側の sub-tree の探索
-        let second_subtree_nearest = self.find_nearest_depth(second_subtree, query, depth + 1);
-        let (second_best, _) = select_nearest(query, first_best, second_subtree_nearest);
-        Some(second_best)
     }
 
     #[inline]
     fn get_node(&self, index: Option<NonZeroUsize>) -> Option<&Node<T>> {
         index.map(|ip1| &self.nodes[ip1.get() - 1])
     }
-}
-
-#[derive(Debug)]
-struct Node<T> {
-    item: T,
-    left_index: Option<NonZeroUsize>,
-    right_index: Option<NonZeroUsize>,
 }
 
 fn construct_part<T: KdTreeItem>(nodes: &mut Vec<Node<T>>, items: &mut [T], depth: usize) -> Option<NonZeroUsize> {
@@ -137,23 +185,4 @@ fn construct_part<T: KdTreeItem>(nodes: &mut Vec<Node<T>>, items: &mut [T], dept
 fn allocate_node<T: KdTreeItem>(nodes: &mut Vec<Node<T>>, node: Node<T>) -> NonZeroUsize {
     nodes.push(node);
     NonZeroUsize::new(nodes.len()).expect("must not be empty")
-}
-
-fn select_nearest<'a, T: KdTreeItem>(
-    query: &'a T,
-    node1: &'a Node<T>,
-    node2: Option<&'a Node<T>>,
-) -> (&'a Node<T>, T::Measurement) {
-    let node1_distance = node1.item.distance(query);
-
-    let Some(node2) = node2 else {
-        return (node1, node1_distance);
-    };
-    let node2_distance = node2.item.distance(query);
-
-    if node1_distance < node2_distance {
-        (node1, node1_distance)
-    } else {
-        (node2, node2_distance)
-    }
 }
