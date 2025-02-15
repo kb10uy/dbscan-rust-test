@@ -93,7 +93,7 @@ impl<T: KdTreeItem> KdTree<T> {
     pub fn find_nearest_n<'a>(&'a self, query: &'a T, max_count: usize) -> Vec<&'a T> {
         let mut candidates = BinaryHeap::with_capacity(max_count);
         self.find_nearest_n_depth(&mut candidates, max_count, self.get_node(self.root_index), query, 0);
-        candidates.iter().rev().map(|c| c.0).collect()
+        candidates.into_sorted_vec().into_iter().map(|c| c.0).collect()
     }
 
     fn find_nearest_n_depth<'a>(
