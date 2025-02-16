@@ -98,7 +98,7 @@ impl<T: KdTreeItem> KdTree<T> {
 
     pub fn find_range_n<'a>(&'a self, query: &'a T, range: &T::Measurement) -> Vec<&'a T> {
         let mut candidates = Vec::new();
-        self.find_range_n_depth(&mut candidates, self.get_node(self.root_index), query, &range, 0);
+        self.find_range_n_depth(&mut candidates, self.get_node(self.root_index), query, range, 0);
         candidates.into_iter().map(|c| c.0).collect()
     }
 

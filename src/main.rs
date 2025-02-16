@@ -1,15 +1,26 @@
+mod dbscan;
 mod kdtree;
 
-use std::time::Instant;
+use crate::dbscan::dbscan;
 
-use crate::kdtree::KdTree;
+use std::time::Instant;
 
 use rand::{distr::Uniform, prelude::*, rng};
 
 fn main() {
-    let uniform_distr = Uniform::new(0.0, 10.0).expect("invalid distribution");
+    let element_counts = vec![
+        10000, 20000, 50000, 80000, 100000, 200000, 300000, 400000, 500000, 800000, 1000000, 5000000, 10000000,
+    ];
+    for elements in element_counts {
+        test_dbscan(elements);
+    }
+}
+
+fn test_dbscan(elements: usize) {
+    let range_scale = (elements as f32).powf(1.0 / 3.0) / 10.0;
+    let uniform_distr = Uniform::new(0.0, 10.0 * range_scale).expect("invalid distribution");
     let mut rng = rng();
-    let data: Vec<[f32; 3]> = (0..1000000)
+    let data: Vec<[f32; 3]> = (0..elements)
         .map(|_| {
             [
                 uniform_distr.sample(&mut rng),
@@ -20,21 +31,7 @@ fn main() {
         .collect();
 
     let now = Instant::now();
-    let kdtree = KdTree::construct(data);
+    let _labels = dbscan(data, 0.05, 6);
     let elapsed = now.elapsed();
-
-    println!("construction: {}ms", elapsed.as_millis());
-    println!("root: {:?}", kdtree.root());
-
-    let now = Instant::now();
-    let nearest_center = kdtree.find_nearest(&[5.0, 5.0, 5.0]);
-    let elapsed = now.elapsed();
-    println!("find: {}ms", elapsed.as_millis());
-    println!("center nearest: {nearest_center:?}");
-
-    let now = Instant::now();
-    let nearest_n = kdtree.find_nearest_n(&[5.0, 5.0, 5.0], 10);
-    let elapsed = now.elapsed();
-    println!("find: {}ms", elapsed.as_millis());
-    println!("center nearest: {nearest_n:?}");
+    println!("{elements} items: {}us", elapsed.as_micros());
 }
