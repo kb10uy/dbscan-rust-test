@@ -96,6 +96,12 @@ impl<T: KdTreeItem> KdTree<T> {
         candidates.into_sorted_vec().into_iter().map(|c| c.0).collect()
     }
 
+    pub fn find_range_n<'a>(&'a self, query: &'a T, range: &T::Measurement) -> Vec<&'a T> {
+        let mut candidates = Vec::new();
+        self.find_range_n_depth(&mut candidates, self.get_node(self.root_index), query, &range, 0);
+        candidates.into_iter().map(|c| c.0).collect()
+    }
+
     fn find_nearest_n_depth<'a>(
         &'a self,
         candidates: &mut BinaryHeap<NeighborCandidate<'a, T>>,
@@ -136,6 +142,39 @@ impl<T: KdTreeItem> KdTree<T> {
             if axis_distance < *max_candidate_distance {
                 self.find_nearest_n_depth(candidates, max_candidates, second_subtree, query, depth + 1);
             }
+        }
+    }
+
+    fn find_range_n_depth<'a>(
+        &'a self,
+        candidates: &mut Vec<NeighborCandidate<'a, T>>,
+        root: Option<&'a Node<T>>,
+        query: &'a T,
+        range: &T::Measurement,
+        depth: usize,
+    ) {
+        let Some(root) = root else {
+            return;
+        };
+
+        // root が candidates に入るなら入れる
+        let root_distance = query.distance(&root.item);
+        if root_distance <= *range {
+            candidates.push(NeighborCandidate(&root.item, root_distance));
+        }
+
+        let (left_subtree, right_subtree) = (self.get_node(root.left_index), self.get_node(root.right_index));
+        let (first_subtree, second_subtree) = match query.cmp_in_depth(&root.item, depth) {
+            Ordering::Less => (left_subtree, right_subtree),
+            Ordering::Equal | Ordering::Greater => (right_subtree, left_subtree),
+        };
+
+        self.find_range_n_depth(candidates, first_subtree, query, range, depth + 1);
+
+        // range が現在の分割面を跨いでいれば逆側も探索
+        let axis_distance = query.distance_to_axis(&root.item, depth);
+        if axis_distance < *range {
+            self.find_range_n_depth(candidates, second_subtree, query, range, depth + 1);
         }
     }
 
